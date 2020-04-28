@@ -1,0 +1,193 @@
+ SELECT m.ca_id AS cm_id,
+    m.name AS cm_name,
+    m.uin,
+    m.uin_name,
+    m.net_gain_loss AS rm_net_gl,
+    m.gross_gain_loss AS rm_gross_cg,
+    m.gross_cgt AS rm_gross_cgt,
+    m.net_cgt AS rm_net_cgt,
+    m.prev_gain_loss AS pm_gl,
+    m.prev_cgt AS pm_cgt,
+    m.gainloss_allocation AS arm_gl_alloc,
+    m.net_capital_gain_loss AS arm_net_gl,
+    m.final_cgt AS arm_cgt_pay,
+    m.last_month_non_payment AS lm_non_pay,
+    m.cgt_current_month AS arm_gross_cgt_pay,
+    m.curr_month_non_payment AS arm_non_pay_adj,
+    m.net_cgt_pay_ref AS arm_net_cgt_pay,
+    m.total_cgt AS arm_total_cgt,
+    m.total_collected_cgt AS arm_col_cgt,
+    m.cgt_short_fall AS arm_cgt_sf
+   FROM ( SELECT mnview.fiscal_year,
+            mnview.month_year,
+            mnview.ca_id,
+            cm.name,
+            mnview.uin,
+            cu.uin_name,
+            mnview.net_gain_loss,
+            mnview.gross_gain_loss,
+            mnview.gross_cgt,
+            mnview.net_cgt,
+            mnview.prev_gain_loss,
+            mnview.prev_cgt,
+            mnview.gainloss_allocation,
+            mnview.net_capital_gain_loss,
+            mnview.final_cgt,
+            mnview.last_month_non_payment,
+            mnview.cgt_current_month,
+            mnview.curr_month_non_payment,
+            mnview.cgt_current_month - mnview.curr_month_non_payment AS net_cgt_pay_ref,
+            mnview.total_cgt,
+            mnview.total_collected_cgt,
+            mnview.total_cgt - mnview.total_collected_cgt AS cgt_short_fall,
+            cm.type
+           FROM ( SELECT mview.fiscal_year,
+                    mview.month_year,
+                    mview.next_month_year,
+                    mview.ca_id,
+                    mview.uin,
+                    mview.net_gain_loss,
+                    mview.gross_gain_loss,
+                    mview.gross_cgt,
+                    mview.net_cgt,
+                    mview.prev_gain_loss,
+                    mview.prev_cgt,
+                    COALESCE(aview.adjustment_gainloss, 0::numeric) AS gainloss_allocation,
+                    COALESCE(aview.net_capital_gain_loss, 0::numeric) AS net_capital_gain_loss,
+                    COALESCE(aview.final_cgt, 0::numeric) AS final_cgt,
+                    COALESCE(dview.default_amount, 0::numeric) AS last_month_non_payment,
+                    COALESCE(cview.cgt, 0::numeric) AS cgt_current_month,
+                    COALESCE(dview1.default_amount, 0::numeric) AS curr_month_non_payment,
+                    COALESCE(fview.cgt, 0::numeric) AS total_cgt,
+                    COALESCE(fview.collected_cgt, 0::numeric) AS total_collected_cgt
+                   FROM ( SELECT sub4.fiscal_year,
+                            sub4.month_year,
+                            sub4.next_month_year,
+                            sub4.ca_id,
+                            sub4.uin,
+                            sum(sub4.net_gain_loss) AS net_gain_loss,
+                            sum(sub4.gross_gain_loss) AS gross_gain_loss,
+                            sum(sub4.gross_cgt) AS gross_cgt,
+                            sum(sub4.net_cgt) AS net_cgt,
+                            sum(sub4.prev_gain_loss) AS prev_gain_loss,
+                            sum(sub4.prev_cgt) AS prev_cgt
+                           FROM ( SELECT sub54.fiscal_year,
+                                    sub54.month_year,
+                                    sub54.next_month_year,
+                                    sub54.ca_id,
+                                    sub54.uin,
+                                    sub54.net_gain_loss,
+                                    sub54.gross_gain_loss,
+                                    sub54.gross_cgt,
+CASE
+ WHEN sub54.net_gain_loss > 0::numeric THEN round(sub54.gross_cgt / sub54.gross_gain_loss * sub54.net_gain_loss, 8)
+ ELSE 0::numeric
+END AS net_cgt,
+                                    0 AS prev_gain_loss,
+                                    0 AS prev_cgt
+                                   FROM ( SELECT sub3.fiscal_year,
+    to_char(sub3.settlement_date, 'MON-YYYY'::text) AS month_year,
+    to_char(sub3.settlement_date + '1 mon'::interval, 'MON-YYYY'::text) AS next_month_year,
+    sub3.ca_id,
+    sub3.uin,
+    sum(sub3.net_gain_loss) AS net_gain_loss,
+    sum(COALESCE(sub3.gross_gain_loss, 0::numeric)) AS gross_gain_loss,
+    sum(COALESCE(sub3.gross_cgt, 0::numeric)) AS gross_cgt
+   FROM ( SELECT nt_view.fiscal_year,
+      nt_view.settlement_date,
+      nt_view.ca_id,
+      nt_view.uin,
+      nt_view.net_gain_loss,
+      pl_view.capital_gain_loss AS gross_gain_loss,
+      pl_view.cgt_value AS gross_cgt
+     FROM ( SELECT sub1.fiscal_year,
+        sub1.settlement_date,
+        sub1.ca_id,
+        sub1.uin,
+        sum(sub1.capital_gain_loss) AS net_gain_loss,
+        sum(sub1.cgt_value) AS cgt_value
+       FROM ( SELECT cgtlive.fiscal_year(cgt_profitloss_cmuin_all_ii.settlement_date, 0) AS fiscal_year,
+          cgt_profitloss_cmuin_all_ii.settlement_date,
+          cgt_profitloss_cmuin_all_ii.ca_id,
+          cgt_profitloss_cmuin_all_ii.uin,
+          cgt_profitloss_cmuin_all_ii.capital_gain_loss,
+          cgt_profitloss_cmuin_all_ii.cgt_value
+         FROM cgtlive.cgt_profitloss_cmuin_all_ii) sub1
+      GROUP BY sub1.fiscal_year, sub1.settlement_date, sub1.ca_id, sub1.uin) nt_view
+       LEFT JOIN ( SELECT sub2.fiscal_year,
+        sub2.settlement_date,
+        sub2.ca_id,
+        sub2.uin,
+        sum(sub2.capital_gain_loss) AS capital_gain_loss,
+        sum(sub2.cgt_value) AS cgt_value
+       FROM ( SELECT cgtlive.fiscal_year(cgt_profitloss_cmuin_all_ii.settlement_date, 0) AS fiscal_year,
+          cgt_profitloss_cmuin_all_ii.settlement_date,
+          cgt_profitloss_cmuin_all_ii.ca_id,
+          cgt_profitloss_cmuin_all_ii.uin,
+          cgt_profitloss_cmuin_all_ii.capital_gain_loss,
+          cgt_profitloss_cmuin_all_ii.cgt_value
+         FROM cgtlive.cgt_profitloss_cmuin_all_ii) sub2
+      WHERE sub2.capital_gain_loss > 0::numeric
+      GROUP BY sub2.fiscal_year, sub2.settlement_date, sub2.ca_id, sub2.uin) pl_view ON nt_view.fiscal_year = pl_view.fiscal_year AND nt_view.settlement_date = pl_view.settlement_date AND nt_view.ca_id::text = pl_view.ca_id::text AND nt_view.uin::text = pl_view.uin::text) sub3
+  WHERE to_char(sub3.settlement_date, 'MON-YYYY'::text) = 'JUL-2019'::text
+  GROUP BY sub3.fiscal_year, (to_char(sub3.settlement_date, 'MON-YYYY'::text)), (to_char(sub3.settlement_date + '1 mon'::interval, 'MON-YYYY'::text)), sub3.ca_id, sub3.uin) sub54
+                                UNION ALL
+                                 SELECT cgtlive.fiscal_year(cgt_running_position.position_date, 1) AS fiscal_year,
+                                    cgt_running_position.position_month AS month_year,
+                                    to_char(cgt_running_position.position_date + '1 mon'::interval, 'MON-YYYY'::text) AS next_month_year,
+                                    cgt_running_position.ca_id,
+                                    cgt_running_position.uin,
+                                    0 AS net_gain_loss,
+                                    0 AS gross_gain_loss,
+                                    0 AS gross_cgt,
+                                    0 AS net_cgt,
+                                    cgt_running_position.gain_loss AS prev_gain_loss,
+                                    cgt_running_position.cgt AS prev_cgt
+                                   FROM cgtlive.cgt_running_position
+                                  WHERE to_char(cgt_running_position.position_date, 'MON-YYYY'::text) = 'JUL-2019'::text AND cgtlive.fiscal_year(cgt_running_position.position_date, 1) = cgtlive.fiscal_year(to_date('JUL-2019'::text, 'MON-YYYY'::text)::timestamp without time zone, 0)) sub4
+                          GROUP BY sub4.fiscal_year, sub4.month_year, sub4.next_month_year, sub4.ca_id, sub4.uin) mview
+                     LEFT JOIN ( SELECT cgtlive.fiscal_year(cgt_profitloss_allocation.end_date, 0) AS fiscal_year,
+                            to_char(cgt_profitloss_allocation.end_date, 'MON-YYYY'::text) AS month_year,
+                            cgt_profitloss_allocation.ca_id,
+                            cgt_profitloss_allocation.uin,
+                            cgt_profitloss_allocation.adjustment_gainloss,
+                            cgt_profitloss_allocation.adjusted_gainloss AS net_capital_gain_loss,
+                            cgt_profitloss_allocation.final_cgt
+                           FROM cgtlive.cgt_profitloss_allocation) aview ON mview.fiscal_year = aview.fiscal_year AND mview.month_year = aview.month_year AND mview.ca_id::text = aview.ca_id::text AND mview.uin::text = aview.uin::text
+                     LEFT JOIN ( SELECT cgtlive.fiscal_year(cgt_money_def_adjustment.collection_date, 1) AS fiscal_year,
+                            to_char(cgt_money_def_adjustment.collection_date, 'MON-YYYY'::text) AS month_year,
+                            cgt_money_def_adjustment.ca_id,
+                            cgt_money_def_adjustment.uin,
+                            cgt_money_def_adjustment.default_amount
+                           FROM ncsslive.cgt_money_def_adjustment) dview ON mview.fiscal_year = dview.fiscal_year AND mview.month_year = dview.month_year AND mview.ca_id::text = dview.ca_id::text AND mview.uin::text = dview.uin::text
+                     LEFT JOIN ( SELECT cgtlive.fiscal_year(cgt_collectpayment_detail.collection_date, 1) AS fiscal_year,
+                            to_char(cgt_collectpayment_detail.collection_date, 'MON-YYYY'::text) AS month_year,
+                            cgt_collectpayment_detail.ca_id,
+                            cgt_collectpayment_detail.uin,
+                            cgt_collectpayment_detail.cgt,
+                            cgt_collectpayment_detail.collected_cgt
+                           FROM cgtlive.cgt_collectpayment_detail) cview ON mview.fiscal_year = cview.fiscal_year AND mview.next_month_year = cview.month_year AND mview.ca_id::text = cview.ca_id::text AND mview.uin::text = cview.uin::text
+                     LEFT JOIN ( SELECT cgtlive.fiscal_year(cgt_money_def_adjustment.collection_date, 1) AS fiscal_year,
+                            to_char(cgt_money_def_adjustment.collection_date, 'MON-YYYY'::text) AS month_year,
+                            cgt_money_def_adjustment.ca_id,
+                            cgt_money_def_adjustment.uin,
+                            cgt_money_def_adjustment.default_amount
+                           FROM ncsslive.cgt_money_def_adjustment) dview1 ON mview.fiscal_year = dview1.fiscal_year AND mview.next_month_year = dview1.month_year AND mview.ca_id::text = dview1.ca_id::text AND mview.uin::text = dview1.uin::text
+                     LEFT JOIN ( SELECT cgt_gainloss_position.fiscal_year,
+                            cgt_gainloss_position.position_month AS month_year,
+                            cgt_gainloss_position.ca_id,
+                            cgt_gainloss_position.uin,
+                            cgt_gainloss_position.cgt,
+                            cgt_gainloss_position.collected_cgt
+                           FROM cgtlive.cgt_gainloss_position) fview ON mview.fiscal_year = fview.fiscal_year::text AND mview.next_month_year = fview.month_year::text AND mview.ca_id::text = fview.ca_id::text AND mview.uin::text = fview.uin::text) mnview
+             JOIN ncsslive.cgt_eligible_cm cm ON mnview.ca_id::text = cm.participant_id::text
+             JOIN cgtlive.cgt_eligible_uin_all cu ON mnview.uin::text = cu.uin::text) m
+     LEFT JOIN ( SELECT fnf.uin,
+            fnf.filer_non_filer
+           FROM cgtlive.cgt_fnf_status_all_system fnf,
+            ( SELECT max(fnf_1.settlement_date) AS settlement_date,
+                    fnf_1.uin
+                   FROM cgtlive.cgt_fnf_status_all_system fnf_1
+                  GROUP BY fnf_1.uin) fnf2
+          WHERE fnf.settlement_date = fnf2.settlement_date AND fnf.uin::text = fnf2.uin::text) fin ON m.uin::text = fin.uin::text
+  WHERE m.month_year = 'JUL-2019'::text;
