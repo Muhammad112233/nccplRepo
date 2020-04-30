@@ -1,0 +1,311 @@
+SELECT CA_ID CM_ID,
+       NAME CM_NAME,
+       M.UIN,
+       UIN_NAME,
+       NET_GAIN_LOSS RM_NET_GL,
+       GROSS_GAIN_LOSS RM_GROSS_CG,
+       GROSS_CGT RM_GROSS_CGT,
+       NET_CGT RM_NET_CGT,
+       PREV_GAIN_LOSS PM_GL,
+       PREV_CGT PM_CGT,
+       GAINLOSS_ALLOCATION ARM_GL_ALLOC,
+       NET_CAPITAL_GAIN_LOSS ARM_NET_GL,
+       FINAL_CGT ARM_CGT_PAY,
+       LAST_MONTH_NON_PAYMENT LM_NON_PAY,
+       CGT_CURRENT_MONTH ARM_GROSS_CGT_PAY,
+       CURR_MONTH_NON_PAYMENT ARM_NON_PAY_ADJ,
+       NET_CGT_PAY_REF ARM_NET_CGT_PAY,
+       TOTAL_CGT ARM_TOTAL_CGT,
+       TOTAL_COLLECTED_CGT ARM_COL_CGT,
+       CGT_SHORT_FALL ARM_CGT_SF
+  FROM (SELECT FISCAL_YEAR,
+               MONTH_YEAR,
+               MNVIEW.CA_ID,
+               CM.NAME,
+               MNVIEW.UIN,
+               CU.UIN_NAME,
+               NET_GAIN_LOSS,
+               GROSS_GAIN_LOSS,
+               GROSS_CGT,
+               NET_CGT,
+               PREV_GAIN_LOSS,
+               PREV_CGT,
+               GAINLOSS_ALLOCATION,
+               NET_CAPITAL_GAIN_LOSS,
+               FINAL_CGT,
+               LAST_MONTH_NON_PAYMENT,
+               CGT_CURRENT_MONTH,
+               CURR_MONTH_NON_PAYMENT,
+               (CGT_CURRENT_MONTH - CURR_MONTH_NON_PAYMENT) NET_CGT_PAY_REF,
+               TOTAL_CGT,
+               TOTAL_COLLECTED_CGT,
+               (TOTAL_CGT - TOTAL_COLLECTED_CGT) CGT_SHORT_FALL,
+               CM.TYPE TYPE
+          FROM (SELECT MVIEW.FISCAL_YEAR,
+                       MVIEW.MONTH_YEAR,
+                       MVIEW.NEXT_MONTH_YEAR,
+                       MVIEW.CA_ID,
+                       MVIEW.UIN,
+                       MVIEW.NET_GAIN_LOSS,
+                       MVIEW.GROSS_GAIN_LOSS,
+                       MVIEW.GROSS_CGT,
+                       MVIEW.NET_CGT,
+                       MVIEW.PREV_GAIN_LOSS,
+                       MVIEW.PREV_CGT,
+                       NVL (AVIEW.ADJUSTMENT_GAINLOSS, 0) GAINLOSS_ALLOCATION,
+                       NVL (AVIEW.NET_CAPITAL_GAIN_LOSS, 0)
+                          NET_CAPITAL_GAIN_LOSS,
+                       NVL (AVIEW.FINAL_CGT, 0) FINAL_CGT,
+                       NVL (DVIEW.DEFAULT_AMOUNT, 0) LAST_MONTH_NON_PAYMENT,
+                       NVL (CVIEW.CGT, 0) CGT_CURRENT_MONTH,
+                       NVL (DVIEW1.DEFAULT_AMOUNT, 0) CURR_MONTH_NON_PAYMENT,
+                       NVL (FVIEW.CGT, 0) TOTAL_CGT,
+                       NVL (FVIEW.COLLECTED_CGT, 0) TOTAL_COLLECTED_CGT
+                  FROM (  SELECT FISCAL_YEAR,
+                                 MONTH_YEAR,
+                                 NEXT_MONTH_YEAR,
+                                 CA_ID,
+                                 UIN,
+                                 SUM (NET_GAIN_LOSS) NET_GAIN_LOSS,
+                                 SUM (GROSS_GAIN_LOSS) GROSS_GAIN_LOSS,
+                                 SUM (GROSS_CGT) GROSS_CGT,
+                                 SUM (NET_CGT) NET_CGT,
+                                 SUM (PREV_GAIN_LOSS) PREV_GAIN_LOSS,
+                                 SUM (PREV_CGT) PREV_CGT
+                            FROM (SELECT FISCAL_YEAR,
+                                         MONTH_YEAR,
+                                         NEXT_MONTH_YEAR,
+                                         CA_ID,
+                                         UIN,
+                                         NET_GAIN_LOSS,
+                                         GROSS_GAIN_LOSS,
+                                         GROSS_CGT,
+                                         (CASE
+                                             WHEN NET_GAIN_LOSS > 0
+                                             THEN
+                                                ROUND (
+                                                   (  GROSS_CGT
+                                                    / GROSS_GAIN_LOSS
+                                                    * NET_GAIN_LOSS),
+                                                   8)
+                                             ELSE
+                                                0
+                                          END)
+                                            NET_CGT,
+                                         0 PREV_GAIN_LOSS,
+                                         0 PREV_CGT
+                                    FROM (  SELECT FISCAL_YEAR,
+                                                   TO_CHAR (SETTLEMENT_DATE,
+                                                            'MON-YYYY')
+                                                      MONTH_YEAR,
+                                                   TO_CHAR (
+                                                      ADD_MONTHS (
+                                                         SETTLEMENT_DATE,
+                                                         1),
+                                                      'MON-YYYY')
+                                                      NEXT_MONTH_YEAR,
+                                                   CA_ID,
+                                                   UIN,
+                                                   SUM (NET_GAIN_LOSS)
+                                                      NET_GAIN_LOSS,
+                                                   SUM (NVL (GROSS_GAIN_LOSS, 0))
+                                                      GROSS_GAIN_LOSS,
+                                                   SUM (NVL (GROSS_CGT, 0))
+                                                      GROSS_CGT
+                                              FROM (SELECT NT_VIEW.FISCAL_YEAR,
+                                                           NT_VIEW.SETTLEMENT_DATE,
+                                                           NT_VIEW.CA_ID,
+                                                           NT_VIEW.UIN,
+                                                           NT_VIEW.NET_GAIN_LOSS
+                                                              NET_GAIN_LOSS,
+                                                           PL_VIEW.CAPITAL_GAIN_LOSS
+                                                              GROSS_GAIN_LOSS,
+                                                           PL_VIEW.CGT_VALUE
+                                                              GROSS_CGT
+                                                      FROM (  SELECT FISCAL_YEAR,
+                                                                     SETTLEMENT_DATE,
+                                                                     CA_ID,
+                                                                     UIN,
+                                                                     SUM (
+                                                                        CAPITAL_GAIN_LOSS)
+                                                                        NET_GAIN_LOSS,
+                                                                     SUM (
+                                                                        CGT_VALUE)
+                                                                        CGT_VALUE
+                                                                FROM (SELECT CGTLIVE.FISCAL_YEAR (
+                                                                                SETTLEMENT_DATE,
+                                                                                0)
+                                                                                FISCAL_YEAR,
+                                                                             SETTLEMENT_DATE,
+                                                                             CA_ID,
+                                                                             UIN,
+                                                                             CAPITAL_GAIN_LOSS,
+                                                                             CGT_VALUE
+                                                                        FROM CGTLIVE.CGT_PROFITLOSS_CMUIN_ALL_II)
+                                                            GROUP BY FISCAL_YEAR,
+                                                                     SETTLEMENT_DATE,
+                                                                     CA_ID,
+                                                                     UIN) NT_VIEW,
+                                                           (  SELECT FISCAL_YEAR,
+                                                                     SETTLEMENT_DATE,
+                                                                     CA_ID,
+                                                                     UIN,
+                                                                     SUM (
+                                                                        CAPITAL_GAIN_LOSS)
+                                                                        CAPITAL_GAIN_LOSS,
+                                                                     SUM (
+                                                                        CGT_VALUE)
+                                                                        CGT_VALUE
+                                                                FROM (SELECT CGTLIVE.FISCAL_YEAR (
+                                                                                SETTLEMENT_DATE,
+                                                                                0)
+                                                                                FISCAL_YEAR,
+                                                                             SETTLEMENT_DATE,
+                                                                             CA_ID,
+                                                                             UIN,
+                                                                             CAPITAL_GAIN_LOSS,
+                                                                             CGT_VALUE
+                                                                        FROM CGTLIVE.CGT_PROFITLOSS_CMUIN_ALL_II)
+                                                               WHERE CAPITAL_GAIN_LOSS >
+                                                                        0
+                                                            GROUP BY FISCAL_YEAR,
+                                                                     SETTLEMENT_DATE,
+                                                                     CA_ID,
+                                                                     UIN) PL_VIEW
+                                                     WHERE     NT_VIEW.FISCAL_YEAR =
+                                                                  PL_VIEW.FISCAL_YEAR(+)
+                                                           AND NT_VIEW.SETTLEMENT_DATE =
+                                                                  PL_VIEW.SETTLEMENT_DATE(+)
+                                                           AND NT_VIEW.CA_ID =
+                                                                  PL_VIEW.CA_ID(+)
+                                                           AND NT_VIEW.UIN =
+                                                                  PL_VIEW.UIN(+))
+                                             WHERE TO_CHAR (SETTLEMENT_DATE,
+                                                            'MON-YYYY') =
+                                                      'JUL-2019'
+                                          GROUP BY FISCAL_YEAR,
+                                                   TO_CHAR (SETTLEMENT_DATE,
+                                                            'MON-YYYY'),
+                                                   TO_CHAR (
+                                                      ADD_MONTHS (
+                                                         SETTLEMENT_DATE,
+                                                         1),
+                                                      'MON-YYYY'),
+                                                   CA_ID,
+                                                   UIN)
+                                  UNION ALL
+                                  SELECT CGTLIVE.FISCAL_YEAR (POSITION_DATE, 1)
+                                            FISCAL_YEAR,
+                                         POSITION_MONTH MONTH_YEAR,
+                                         TO_CHAR (
+                                            ADD_MONTHS (POSITION_DATE, 1),
+                                            'MON-YYYY')
+                                            NEXT_MONTH_YEAR,
+                                         CA_ID,
+                                         UIN,
+                                         0 NET_GAIN_LOSS,
+                                         0 GROSS_GAIN_LOSS,
+                                         0 GROSS_CGT,
+                                         0 NET_CGT,
+                                         GAIN_LOSS PREV_GAIN_LOSS,
+                                         CGT PREV_CGT
+                                    FROM CGTLIVE.CGT_RUNNING_POSITION
+                                   WHERE     TO_CHAR (POSITION_DATE,
+                                                      'MON-YYYY') = 'JUL-2019'
+                                         AND CGTLIVE.FISCAL_YEAR (
+                                                POSITION_DATE,
+                                                1) =
+                                                CGTLIVE.FISCAL_YEAR (
+                                                   TO_DATE ('JUL-2019',
+                                                            'MON-YYYY'),
+                                                   0))
+                        GROUP BY FISCAL_YEAR,
+                                 MONTH_YEAR,
+                                 NEXT_MONTH_YEAR,
+                                 CA_ID,
+                                 UIN) MVIEW
+                       LEFT OUTER JOIN (SELECT CGTLIVE.FISCAL_YEAR (END_DATE,
+                                                                    0)
+                                                  FISCAL_YEAR,
+                                               TO_CHAR (END_DATE, 'MON-YYYY')
+                                                  MONTH_YEAR,
+                                               CA_ID,
+                                               UIN,
+                                               ADJUSTMENT_GAINLOSS,
+                                               ADJUSTED_GAINLOSS
+                                                  NET_CAPITAL_GAIN_LOSS,
+                                               FINAL_CGT
+                                          FROM CGTLIVE.CGT_PROFITLOSS_ALLOCATION) AVIEW
+                          ON     MVIEW.FISCAL_YEAR = AVIEW.FISCAL_YEAR
+                             AND MVIEW.MONTH_YEAR = AVIEW.MONTH_YEAR
+                             AND MVIEW.CA_ID = AVIEW.CA_ID
+                             AND MVIEW.UIN = AVIEW.UIN
+                       LEFT OUTER JOIN (SELECT CGTLIVE.FISCAL_YEAR (
+                                                  COLLECTION_DATE,
+                                                  1)
+                                                  FISCAL_YEAR,
+                                               TO_CHAR (COLLECTION_DATE,
+                                                        'MON-YYYY')
+                                                  MONTH_YEAR,
+                                               CA_ID,
+                                               UIN,
+                                               DEFAULT_AMOUNT
+                                          FROM NCSSLIVE.CGT_MONEY_DEF_ADJUSTMENT) DVIEW
+                          ON     MVIEW.FISCAL_YEAR = DVIEW.FISCAL_YEAR
+                             AND MVIEW.MONTH_YEAR = DVIEW.MONTH_YEAR
+                             AND MVIEW.CA_ID = DVIEW.CA_ID
+                             AND MVIEW.UIN = DVIEW.UIN
+                       LEFT OUTER JOIN (SELECT CGTLIVE.FISCAL_YEAR (
+                                                  COLLECTION_DATE,
+                                                  1)
+                                                  FISCAL_YEAR,
+                                               TO_CHAR (COLLECTION_DATE,
+                                                        'MON-YYYY')
+                                                  MONTH_YEAR,
+                                               CA_ID,
+                                               UIN,
+                                               CGT,
+                                               COLLECTED_CGT
+                                          FROM CGTLIVE.CGT_COLLECTPAYMENT_DETAIL) CVIEW
+                          ON     MVIEW.FISCAL_YEAR = CVIEW.FISCAL_YEAR
+                             AND MVIEW.NEXT_MONTH_YEAR = CVIEW.MONTH_YEAR
+                             AND MVIEW.CA_ID = CVIEW.CA_ID
+                             AND MVIEW.UIN = CVIEW.UIN
+                       LEFT OUTER JOIN (SELECT CGTLIVE.FISCAL_YEAR (
+                                                  COLLECTION_DATE,
+                                                  1)
+                                                  FISCAL_YEAR,
+                                               TO_CHAR (COLLECTION_DATE,
+                                                        'MON-YYYY')
+                                                  MONTH_YEAR,
+                                               CA_ID,
+                                               UIN,
+                                               DEFAULT_AMOUNT
+                                          FROM NCSSLIVE.CGT_MONEY_DEF_ADJUSTMENT) DVIEW1
+                          ON     MVIEW.FISCAL_YEAR = DVIEW1.FISCAL_YEAR
+                             AND MVIEW.NEXT_MONTH_YEAR = DVIEW1.MONTH_YEAR
+                             AND MVIEW.CA_ID = DVIEW1.CA_ID
+                             AND MVIEW.UIN = DVIEW1.UIN
+                       LEFT OUTER JOIN (SELECT FISCAL_YEAR,
+                                               POSITION_MONTH MONTH_YEAR,
+                                               CA_ID,
+                                               UIN,
+                                               CGT,
+                                               COLLECTED_CGT
+                                          FROM CGTLIVE.CGT_GAINLOSS_POSITION) FVIEW
+                          ON     MVIEW.FISCAL_YEAR = FVIEW.FISCAL_YEAR
+                             AND MVIEW.NEXT_MONTH_YEAR = FVIEW.MONTH_YEAR
+                             AND MVIEW.CA_ID = FVIEW.CA_ID
+                             AND MVIEW.UIN = FVIEW.UIN) MNVIEW
+               INNER JOIN CGT_ELIGIBLE_CM CM
+                  ON MNVIEW.CA_ID = CM.PARTICIPANT_ID
+               INNER JOIN CGTLIVE.cgt_eligible_uin_ALL CU
+                  ON MNVIEW.UIN = CU.UIN) m,
+       (SELECT fnf.uin, FNF.FILER_NON_FILER
+          FROM CGTLIVE.CGT_FNF_STATUS_ALL_SYSTEM FNF,
+               (  SELECT MAX (settlement_date) settlement_date, UIN
+                    FROM CGTLIVE.CGT_FNF_STATUS_ALL_SYSTEM FNF
+                GROUP BY UIN) fnf2
+         WHERE     FNF.SETTLEMENT_DATE = fnf2.settlement_date
+               AND fnf.uin = fnf2.uin) fin
+ WHERE MONTH_YEAR = 'JUL-2019' AND M.UIN = fin.UIN(+)
