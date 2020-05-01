@@ -1,0 +1,1181 @@
+
+SELECT SETTLEMENT_DATE,
+       MVIEW.UIN,
+       U.UIN_NAME,
+       MVIEW.PARTICIPANT_ID,
+       ELG.NAME CM_NAME,
+       MVIEW.ISIN,
+       S.SYMBOL,
+       ACCOUNT_NUMBER,
+       QTY MARKET_QTY,
+       RATE MARKET_RATE,
+       ((QTY*RATE) - SELL_EXPENSE) TAXABLE_NET_AMOUNT,
+       SELL_VALUE MARKET_SELL_VALUE,
+       CGT_TAXIABLE_QTY,
+       TAX_RATE,
+       Tax_OUT_VALUE,
+       CGT_NONTAX_QTY,
+       INTAX_RATE,
+       INTAX_OUT_VALUE,
+       INV_OUTGOING_QTY PROFIT_LOSS_QTY,
+       PROFIT_LOSS,
+       DURATION,
+       (CASE
+            WHEN (PROFIT_LOSS > 0) THEN ROUND(((CGT * 100) / PROFIT_LOSS)::numeric, 2) ::float
+            ELSE 0
+        END) TAX_PERCENT,
+       CGT,
+       SELL_EXPENSE,
+       INV_PARTICIPANT_ID,
+       INV_ACCOUNT_NUMBER,
+       INVENTORY_DATE,
+       INV_OUTGOING_QTY,
+       INV_PRICE,
+       INV_AVG_PRICE,
+       (INV_OUTGOING_QTY*INV_AVG_PRICE) AMOUNT,
+       ROW_NUMBER () OVER (PARTITION BY SETTLEMENT_DATE,
+                                        MVIEW.UIN,
+                                        MVIEW.PARTICIPANT_ID,
+                                        MVIEW.ISIN,
+                                        ACCOUNT_NUMBER
+                           ORDER BY SETTLEMENT_DATE,
+                                    MVIEW.UIN,
+                                    MVIEW.PARTICIPANT_ID,
+                                    MVIEW.ISIN,
+                                    ACCOUNT_NUMBER) DUPLICATE_COUNT,
+                          1461 PERIOD_FROM,
+                          TRANS_TYPE,
+                          TRN_CODE,
+                          REASON_CODE
+FROM
+  (SELECT SETTLEMENT_DATE,
+          UIN,
+          PARTICIPANT_ID,
+          ISIN,
+          ACCOUNT_NUMBER,
+          SUM (SELL_QTY) QTY,
+              (CASE
+                   WHEN SUM (SELL_QTY) > 0 THEN SUM (SELL_VALUE) / SUM (SELL_QTY)
+                   ELSE 0
+               END) RATE,
+              SUM (SELL_VALUE) SELL_VALUE,
+                  SUM (CGT_TAXIABLE_QTY) CGT_TAXIABLE_QTY,
+                      SUM (CGT_NONTAX_QTY) CGT_NONTAX_QTY,
+                          SUM (Tax_OUTGOING_VALUE) Tax_OUT_VALUE,
+                              SUM (In_Tax_OUTGOING_VALUE) INTAX_OUT_VALUE,
+                                  (CASE
+                                       WHEN SUM (TEMP.CGT_NONTAX_QTY) > 0 THEN SUM (TEMP.In_Tax_OUTGOING_VALUE) / SUM (TEMP.CGT_NONTAX_QTY)
+                                       ELSE 0
+                                   END) INTAX_RATE,
+                                  (CASE
+                                       WHEN SUM (TEMP.CGT_TAXIABLE_QTY) > 0 THEN SUM (TEMP.Tax_OUTGOING_VALUE) / SUM (TEMP.CGT_TAXIABLE_QTY)
+                                       ELSE 0
+                                   END) TAX_RATE,
+                                  SUM (SELL_EXPENSE) SELL_EXPENSE,
+                                      INV_PARTICIPANT_ID,
+                                      INV_ACCOUNT_NUMBER,
+                                      SUM (INV_OUTGOING_QTY) INV_OUTGOING_QTY,
+                                          AVG (INV_PRICE) INV_PRICE,
+                                              INVENTORY_DATE,
+                                              AVG (INV_AVG_PRICE) INV_AVG_PRICE,
+                                                  (CASE
+                                                       WHEN SUM (SELL_QTY) > 0 THEN SUM (PROFIT_LOSS_SALE)
+                                                       ELSE CASE
+                                                                WHEN SUM (CGT_TAXIABLE_QTY) > 0 THEN SUM (PROFIT_LOSS_TAXABLE)
+                                                                ELSE 0
+                                                            END
+                                                   END) PROFIT_LOSS,
+                                                  (CASE
+                                                       WHEN SUM (SELL_QTY) > 0 THEN ROUND (AVG (DURATION_SALE))
+                                                       ELSE CASE
+                                                                WHEN SUM (DURATION_TAXABLE) > 0 THEN ROUND (AVG (DURATION_TAXABLE))
+                                                                ELSE 0
+                                                            END
+                                                   END) DURATION,
+                                                  (CASE
+                                                       WHEN SUM (SELL_QTY) > 0 THEN SUM (CGT_SALE)
+                                                       ELSE CASE
+                                                                WHEN SUM (CGT_TAXABLE) > 0 THEN SUM (CGT_TAXABLE)
+                                                                ELSE 0
+                                                            END
+                                                   END) CGT,
+                                                  SUM (PROFIT_LOSS_QTY_SALE) PROFIT_LOSS_QTY_SALE,
+                                                      TRANS_TYPE,
+                                                      TRN_CODE,
+                                                      REASON_CODE
+   FROM
+     (SELECT C.SETTLEMENT_DATE,
+             C.UIN,
+             C.PARTICIPANT_ID,
+             C.ISIN,
+             C.ACCOUNT_NUMBER,
+             gl.INV_OUTGOING_QTY SELL_QTY,
+             C.SELL_PRICE SELL_RATE,
+             C.Sell_PRICE * gl.INV_OUTGOING_QTY SELL_VALUE,
+             0 CGT_TAXIABLE_QTY,
+             0 CGT_NONTAX_QTY,
+             0 Tax_OUTGOING_VALUE,
+             0 In_Tax_OUTGOING_VALUE,
+             ROUND (((C.SELL_EXPENSE / C.SELL_QTY) * gl.INV_OUTGOING_QTY), 4) SELL_EXPENSE,
+             GL.INV_PARTICIPANT_ID,
+             GL.INV_ACCOUNT_NUMBER,
+             GL.INV_OUTGOING_QTY,
+             GL.INV_PRICE,
+             GL.INVENTORY_DATE,
+             GL.INV_AVG_PRICE,
+             PLV.PROFIT_LOSS_QTY PROFIT_LOSS_QTY_SALE,
+             (CASE
+                  WHEN PLV.PROFIT_LOSS_QTY = 0 THEN PLV.PROFIT_LOSS_QTY
+                  ELSE PLV.PROFIT_LOSS / PLV.PROFIT_LOSS_QTY
+              END) * GL.INV_OUTGOING_QTY PROFIT_LOSS_SALE,
+             PLV.DURATION DURATION_SALE,
+             (CASE
+                  WHEN PLV.PROFIT_LOSS = 0 THEN PLV.PROFIT_LOSS
+                  ELSE PLV.CGT / PLV.PROFIT_LOSS
+              END) * ((CASE
+                           WHEN PLV.PROFIT_LOSS_QTY = 0 THEN PLV.PROFIT_LOSS_QTY
+                           ELSE PLV.PROFIT_LOSS / PLV.PROFIT_LOSS_QTY
+                       END) * GL.INV_OUTGOING_QTY) CGT_SALE,
+             PLV.TAX_PERCENT TAX_PERCENT_SALE,
+             0 PROFIT_LOSS_TAXABLE,
+             0 PROFIT_LOSS_QTY_TAXABLE,
+             0 DURATION_TAXABLE,
+             0 CGT_TAXABLE,
+             0 TAX_PERCENT_TAXABLE,
+             'Market Based' TRANS_TYPE,
+                            '' TRN_CODE,
+                               '' REASON_CODE
+      FROM CGTLIVE.CGT_ACCOUNT_SALE C,
+           CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL,
+           CGTLIVE.CGT_PROLOSS_VW_WITH_INV_ID_ALL PLV,
+           CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE C.MARKET_TRAN_ID = GL.ALL_TYPE_OUT_ID
+        AND GL.OUTGOING_TYPE = 'M'
+        AND TO_CHAR (C.SETTLEMENT_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (C.SETTLEMENT_DATE,
+                     'YYYY') = '2019'
+        AND PLV.TRANSACTION_DATE = C.SETTLEMENT_DATE
+        AND PLV.TRANSACTION_DATE = GL.TRANSACTION_DATE
+        AND PLV.ISIN = GL.ISIN
+        AND PLV.UIN = GL.UIN
+        AND C.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+        AND GL.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+        AND PLV.PARTICIPANT_ID = GL.PARTICIPANT_ID
+        AND PLV.ACCOUNT_NUMBER = GL.ACCOUNT_NUMBER
+        AND PLV.INV_ID = GL.INV_ID
+        AND PLV.TRANSACTION_DATE = GL.TRANSACTION_DATE
+        AND C.SETTLEMENT_DATE = GL.TRANSACTION_DATE
+      UNION ALL SELECT T.TRANSACTION_DATE SETTLEMENT_DATE,
+                       t.UIN,
+                       t.PARTICIPANT_ID,
+                       t.ISIN,
+                       t.ACCOUNT_NUMBER,
+                       gl.INV_OUTGOING_QTY SELL_QTY,
+                       0 sell_rate,
+                       0 sell_value,
+                       0 CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       0 Tax_OUTGOING_VALUE,
+                       0 In_Tax_OUTGOING_VALUE,
+                       0 sell_expense,
+                       gl.INV_PARTICIPANT_ID,
+                       gl.INV_ACCOUNT_NUMBER,
+                       gl.INV_OUTGOING_QTY,
+                       gl.INV_PRICE,
+                       GL.INVENTORY_DATE,
+                       GL.INV_AVG_PRICE,
+                       PROFIT_LOSS_QTY PROFIT_LOSS_QTY_SALE,
+                       (CASE
+                            WHEN T.PROFIT_LOSS_QTY = 0 THEN T.PROFIT_LOSS_QTY
+                            ELSE T.PROFIT_LOSS / T.PROFIT_LOSS_QTY
+                        END) * GL.INV_OUTGOING_QTY PROFIT_LOSS_SALE,
+                       DURATION duration_Sale,
+                       (CASE
+                            WHEN T.PROFIT_LOSS = 0 THEN T.PROFIT_LOSS
+                            ELSE T.CGT / T.PROFIT_LOSS
+                        END) * ((CASE
+                                     WHEN T.PROFIT_LOSS_QTY = 0 THEN T.PROFIT_LOSS_QTY
+                                     ELSE T.PROFIT_LOSS / T.PROFIT_LOSS_QTY
+                                 END) * GL.INV_OUTGOING_QTY) CGT_SALE,
+                       TAX_PERCENT TAX_PERCENT_SALE,
+                       0 PROFIT_LOSS_TAXABLE,
+                       0 PROFIT_LOSS_QTY_TAXABLE,
+                       0 DURATION_TAXABLE,
+                       0 CGT_TAXABLE,
+                       0 TAX_PERCENT_TAXABLE,
+                       'Market Based' TRANS_TYPE,
+                                      '' TRN_CODE,
+                                         '' REASON_CODE
+      FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION gl,
+           CGTLIVE.CGT_PROLOSS_VW_WITH_INV_ID_ALL t,
+
+        (SELECT UIN,
+                UIN_NAME
+         FROM CGTLIVE.cgt_eligible_uin_ALL
+         WHERE UIN NOT IN
+             (SELECT IPO_UIN
+              FROM CGTLIVE.CGT_IPO_UIN)) U,
+           NCSSLIVE.CGT_ELIGIBLE_CM ELG,
+           NCSSLIVE.SECURITY S
+      WHERE GL.INVENTORY_DATE = T.INVENTORY_DATE
+        AND GL.TRANSACTION_DATE = T.TRANSACTION_DATE
+        AND u.uin = t.uin
+        AND ELG.participant_id = t.participant_id
+        AND GL.ISIN = t.isin
+        AND t.isin = s.isin
+        AND GL.ACCOUNT_NUMBER = T.ACCOUNT_NUMBER
+        AND GL.PARTICIPANT_ID = T.PARTICIPANT_ID
+        AND GL.uin = T.uin
+        AND T.INV_ID = GL.INV_ID
+        AND GL.ALL_TYPE_OUT_ID IS NULL
+        AND TO_CHAR (T.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (T.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND TO_CHAR (GL.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (GL.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND GL.PROFIT_LOSS_TAG = 'Y'
+      UNION ALL SELECT T.TRANSACTION_DATE SETTLEMENT_DATE,
+                       T.UIN,
+                       T.PARTICIPANT_ID,
+                       T.ISIN,
+                       T.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       GL.INV_OUTGOING_QTY CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       GL.INV_OUTGOING_QTY * T.OUTGOING_PRICE TAX_OUTGOING_VALUE,
+                       0 IN_TAX_OUTGOING_VALUE,
+                       0 SELL_EXPENSE,
+                       GL.INV_PARTICIPANT_ID,
+                       GL.INV_ACCOUNT_NUMBER,
+                       GL.INV_OUTGOING_QTY,
+                       GL.INV_PRICE,
+                       GL.INVENTORY_DATE,
+                       GL.INV_AVG_PRICE,
+                       0 PROFIT_LOSS_SALE,
+                       0 PROFIT_LOSS_QTY_SALE,
+                       0 DURATION_SALE,
+                       0 CGT_SALE,
+                       0 TAX_PERCENT_SALE,
+                       0 PROFIT_LOSS_TAXABLE,
+                       0 PROFIT_LOSS_QTY_TAXABLE,
+                       0 DURATION_TAXABLE,
+                       0 CGT_TAXABLE,
+                       0 TAX_PERCENT_TAXABLE,
+                       'Non-Market Based' TRANS_TYPE,
+                                          T.TRN_CODE,
+                                          T.REASON_CODE
+      FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL,
+           CGTLIVE.CGT_CORPORATEACTION_OUTGOING T
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON T.TRANSACTION_DATE = FNF.SETTLEMENT_DATE
+      AND T.UIN = FNF.UIN,
+
+        (SELECT UIN,
+                UIN_NAME
+         FROM CGTLIVE.cgt_eligible_uin_ALL
+         WHERE UIN NOT IN
+             (SELECT IPO_UIN
+              FROM CGTLIVE.CGT_IPO_UIN)) U,
+          NCSSLIVE.CGT_ELIGIBLE_CM ELG ,
+          NCSSLIVE.SECURITY S
+      WHERE GL.TRANSACTION_DATE = T.TRANSACTION_DATE
+        AND U.UIN = T.UIN
+        AND ELG.PARTICIPANT_ID = T.PARTICIPANT_ID
+        AND GL.ISIN = T.ISIN
+        AND T.ISIN = S.ISIN
+        AND GL.ACCOUNT_NUMBER = T.ACCOUNT_NUMBER
+        AND GL.PARTICIPANT_ID = T.PARTICIPANT_ID
+        AND GL.UIN = T.UIN
+        AND GL.ALL_TYPE_OUT_ID = T.NCC_TRN_ID
+        AND GL.ALL_TYPE_OUT_DET_ID = T.ACC_OUT_ID
+        AND TO_CHAR (GL.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (GL.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND TO_CHAR (T.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (T.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND GL.PROFIT_LOSS_TAG = 'Y'
+        AND T.TRN_CODE = 'E060'
+        AND T.OPR_CODE = 'DLST'
+        AND S.SEC_TYPE_ID = 3 ::text
+        AND GL.INV_PRICE = 0
+      UNION ALL SELECT SETTLEMENT_DATE,
+                       UIN,
+                       PARTICIPANT_ID,
+                       ISIN,
+                       ACCOUNT_NUMBER,
+                       SELL_QTY,
+                       SELL_RATE,
+                       SELL_VALUE,
+                       CGT_TAXIABLE_QTY,
+                       CGT_NONTAX_QTY,
+                       TAX_OUTGOING_VALUE,
+                       IN_TAX_OUTGOING_VALUE,
+                       SELL_EXPENSE,
+                       INV_PARTICIPANT_ID,
+                       INV_ACCOUNT_NUMBER,
+                       INV_OUTGOING_QTY,
+                       INV_PRICE,
+                       INVENTORY_DATE,
+                       INV_AVG_PRICE,
+                       PROFIT_LOSS_SALE,
+                       PROFIT_LOSS_QTY_SALE,
+                       DURATION_SALE,
+                       CGT_SALE,
+                       TAX_PERCENT_SALE,
+                       (CASE
+                            WHEN PROFIT_LOSS_QTY_TAXABLE = 0 THEN PROFIT_LOSS_QTY_TAXABLE
+                            ELSE PROFIT_LOSS_TAXABLE / PROFIT_LOSS_QTY_TAXABLE
+                        END) * CGT_TAXIABLE_QTY PROFIT_LOSS_TAXABLE,
+                       PROFIT_LOSS_QTY_TAXABLE,
+                       DURATION_TAXABLE,
+                       (CASE
+                            WHEN PROFIT_LOSS_TAXABLE = 0 THEN PROFIT_LOSS_TAXABLE
+                            ELSE CGT_TAXABLE / PROFIT_LOSS_TAXABLE
+                        END) * ((CASE
+                                     WHEN PROFIT_LOSS_QTY_TAXABLE = 0 THEN PROFIT_LOSS_QTY_TAXABLE
+                                     ELSE PROFIT_LOSS_TAXABLE / PROFIT_LOSS_QTY_TAXABLE
+                                 END) * CGT_TAXIABLE_QTY) CGT_TAXABLE,
+                       TAX_PERCENT_TAXABLE,
+                       TRANS_TYPE,
+                       TRN_CODE,
+                       REASON_CODE
+      FROM
+        (SELECT OUG.SETTLEMENT_DATE,
+                OUG.UIN,
+                OUG.PARTICIPANT_ID,
+                OUG.ISIN,
+                OUG.ACCOUNT_NUMBER,
+                0 SELL_QTY,
+                0 SELL_RATE,
+                0 SELL_VALUE,
+                OUG.CGT_TAXIABLE_QTY,
+                0 CGT_NONTAX_QTY,
+                OUG.TAX_OUTGOING_VALUE,
+                0 IN_TAX_OUTGOING_VALUE,
+                0 SELL_EXPENSE,
+                OUG.INV_PARTICIPANT_ID,
+                OUG.INV_ACCOUNT_NUMBER,
+                OUG.INV_OUTGOING_QTY,
+                OUG.INV_PRICE,
+                OUG.INVENTORY_DATE,
+                OUG.INV_AVG_PRICE,
+                0 PROFIT_LOSS_SALE,
+                0 PROFIT_LOSS_QTY_SALE,
+                0 DURATION_SALE,
+                0 CGT_SALE,
+                0 TAX_PERCENT_SALE,
+                SUM (P.PROFIT_LOSS) PROFIT_LOSS_TAXABLE,
+                    AVG (P.PROFIT_LOSS_QTY) PROFIT_LOSS_QTY_TAXABLE,
+                        AVG (P.DURATION) DURATION_TAXABLE,
+                            SUM (P.CGT) CGT_TAXABLE,
+                                AVG (P.TAX_PERCENT) TAX_PERCENT_TAXABLE,
+                                    'Non-Market Based' TRANS_TYPE,
+                                                       TRN_CODE,
+                                                       TAX_REASON REASON_CODE
+         FROM
+           (SELECT O.SETTLEMENT_DATE,
+                   O.UIN,
+                   O.PARTICIPANT_ID,
+                   O.ISIN,
+                   O.ACCOUNT_NUMBER,
+                   0 SELL_QTY,
+                   0 SELL_QTY,
+                   0 SELL_RATE,
+                   0 SELL_VALUE,
+                   O.INV_ID,
+                   O.TRANSACTION_DATE,
+                   SUM (O.CGT_TAXIABLE_QTY) CGT_TAXIABLE_QTY,
+                       SUM (O.CGT_NONTAX_QTY) CGT_NONTAX_QTY,
+                           SUM (O.TAX_OUTGOING_VALUE) TAX_OUTGOING_VALUE,
+                               0 IN_TAX_OUTGOING_VALUE,
+                               0 SELL_EXPENSE,
+                               O.INV_PARTICIPANT_ID,
+                               O.INV_ACCOUNT_NUMBER,
+                               SUM (O.INV_OUTGOING_QTY) INV_OUTGOING_QTY,
+                                   AVG (O.INV_PRICE) INV_PRICE,
+                                       O.INVENTORY_DATE,
+                                       AVG (O.INV_AVG_PRICE) INV_AVG_PRICE,
+                                           TRN_CODE,
+                                           TAX_REASON
+            FROM
+              (SELECT C.SETTLEMENT_DATE,
+                      C.UIN,
+                      C.PARTICIPANT_ID,
+                      C.ISIN,
+                      C.ACCOUNT_NUMBER,
+                      0 SELL_QTY,
+                      0 SELL_RATE,
+                      0 SELL_VALUE,
+                      GL.INV_OUTGOING_QTY CGT_TAXIABLE_QTY,
+                      0 CGT_NONTAX_QTY,
+                      GL.INV_OUTGOING_QTY * C.OUTGOING_PRICE TAX_OUTGOING_VALUE,
+                      0 IN_TAX_OUTGOING_VALUE,
+                      0 SELL_EXPENSE,
+                      GL.INV_PARTICIPANT_ID,
+                      GL.INV_ACCOUNT_NUMBER,
+                      GL.INV_OUTGOING_QTY,
+                      GL.INV_PRICE,
+                      GL.INVENTORY_DATE,
+                      GL.INV_AVG_PRICE,
+                      GL.INV_ID,
+                      GL.TRANSACTION_DATE,
+                      0 PROFIT_LOSS_SALE,
+                      0 PROFIT_LOSS_QTY_SALE,
+                      0 DURATION_SALE,
+                      0 CGT_SALE,
+                      0 TAX_PERCENT_SALE,
+                      C.TRN_CODE,
+                      C.TAX_REASON
+               FROM CGTLIVE.CGT_OUTGOING_TAXIABLE_VW_WID_T C,
+                    CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL
+               WHERE C.NCC_TRN_ID = GL.ALL_TYPE_OUT_ID
+                 AND C.ACC_OUT_ID = GL.ALL_TYPE_OUT_DET_ID
+                 AND GL.OUTGOING_TYPE IN ('N',
+                                          'C')
+                 AND TO_CHAR (C.SETTLEMENT_DATE,
+                              'MON') = 'JAN'
+                 AND TO_CHAR (C.SETTLEMENT_DATE,
+                              'YYYY') = '2019'
+                 AND C.SETTLEMENT_DATE = GL.TRANSACTION_DATE) O
+            GROUP BY O.SETTLEMENT_DATE,
+                     O.UIN,
+                     O.PARTICIPANT_ID,
+                     O.ISIN,
+                     O.ACCOUNT_NUMBER,
+                     O.INV_PARTICIPANT_ID,
+                     O.INV_ACCOUNT_NUMBER,
+                     O.INVENTORY_DATE,
+                     O.INV_ID,
+                     O.TRANSACTION_DATE,
+                     O.TRN_CODE,
+                     O.TAX_REASON) OUG,
+              CGTLIVE.CGT_PROLOSS_VW_WITH_INV_ID_ALL P,
+              CGTLIVE.CGT_ELIGIBLE_CM ELG
+         WHERE P.ISIN = OUG.ISIN
+           AND P.UIN = OUG.UIN
+           AND OUG.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+           AND P.PARTICIPANT_ID = OUG.PARTICIPANT_ID
+           AND P.ACCOUNT_NUMBER = OUG.ACCOUNT_NUMBER
+           AND P.TRANSACTION_DATE = OUG.TRANSACTION_DATE
+           AND P.INV_ID = OUG.INV_ID
+         GROUP BY OUG.SETTLEMENT_DATE,
+                  OUG.UIN,
+                  OUG.PARTICIPANT_ID,
+                  OUG.ISIN,
+                  OUG.ACCOUNT_NUMBER,
+                  OUG.CGT_TAXIABLE_QTY,
+                  OUG.TAX_OUTGOING_VALUE,
+                  OUG.INV_PARTICIPANT_ID,
+                  OUG.INV_ACCOUNT_NUMBER,
+                  OUG.INV_OUTGOING_QTY,
+                  OUG.INV_PRICE,
+                  OUG.INVENTORY_DATE,
+                  OUG.INV_AVG_PRICE,
+                  OUG.TRN_CODE,
+                  OUG.TAX_REASON)SUB1
+      UNION ALL SELECT C.SETTLEMENT_DATE,
+                       C.UIN,
+                       C.PARTICIPANT_ID,
+                       C.ISIN,
+                       C.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       0 CGT_TAXIABLE_QTY,
+                       GL.INV_OUTGOING_QTY CGT_NONTAX_QTY,
+                       0 Tax_OUTGOING_VALUE,
+                       GL.INV_OUTGOING_QTY * C.OUTGOING_PRICE In_Tax_OUTGOING_VALUE,
+                       0 SELL_EXPENSE,
+                       GL.INV_PARTICIPANT_ID,
+                       GL.INV_ACCOUNT_NUMBER,
+                       GL.INV_OUTGOING_QTY,
+                       GL.INV_PRICE,
+                       GL.INVENTORY_DATE,
+                       GL.INV_AVG_PRICE,
+                       0 PROFIT_LOSS_SALE,
+                       0 PROFIT_LOSS_QTY_SALE,
+                       0 DURATION_SALE,
+                       0 CGT_SALE,
+                       0 TAX_PERCENT_SALE,
+                       0 PROFIT_LOSS_TAXABLE,
+                       0 PROFIT_LOSS_QTY_TAXABLE,
+                       0 DURATION_TAXABLE,
+                       0 CGT_TAXABLE,
+                       0 TAX_PERCENT_TAXABLE,
+                       'Non-Market Based' TRANS_TYPE,
+                                          C.TRN_CODE,
+                                          IN_REASON REASON_CODE
+      FROM CGTLIVE.CGT_OUTGOING_NONTAX_VW_WID_T C
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON C.SETTLEMENT_DATE = FNF.SETTLEMENT_DATE
+      AND C.UIN = FNF.UIN,
+          CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG /*added start*/ /*, ncsslive.security S */ /*added start*/
+      WHERE C.NCC_TRN_ID = GL.ALL_TYPE_OUT_ID
+        AND C.ACC_OUT_ID = GL.ALL_TYPE_OUT_DET_ID
+        AND C.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+        AND GL.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+        AND GL.OUTGOING_TYPE IN ('N',
+                                 'C')
+        AND C.SETTLEMENT_DATE = GL.TRANSACTION_DATE
+        AND TO_CHAR (C.SETTLEMENT_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (C.SETTLEMENT_DATE,
+                     'YYYY') = '2019'
+      UNION ALL SELECT X.SETTLEMENT_DATE TRANSACTION_DATE,
+                       X.UIN,
+                       X.PARTICIPANT_ID,
+                       X.ISIN,
+                       X.ACCOUNT_NUMBER,
+                       X.SELL_QTY,
+                       X.SELL_PRICE SELL_RATE,
+                       X.SELL_VALUE,
+                       0 CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       0 TAX_OUTGOING_VALUE,
+                       0 IN_TAX_OUTGOING_VALUE,
+                       SELL_EXPENSE,
+                       NULL INV_PARTICIPANT_ID,
+                            0 INV_ACCOUNT_NUMBER,
+                            0 INV_OUTGOING_QTY,
+                            0 INV_PRICE,
+                            NULL INVENTORY_DATE,
+                                 0 INV_AVG_PRICE,
+                                 0 PROFIT_LOSS_SALE,
+                                 0 PROFIT_LOSS_QTY_SALE,
+                                 0 DURATION_SALE,
+                                 0 CGT_SALE,
+                                 0 TAX_PERCENT_SALE,
+                                 0 PROFIT_LOSS_TAXABLE,
+                                 0 PROFIT_LOSS_QTY_TAXABLE,
+                                 0 DURATION_TAXABLE,
+                                 0 CGT_TAXABLE,
+                                 0 TAX_PERCENT_TAXABLE,
+                                 'Market Based' TRANS_TYPE,
+                                                '' TRN_CODE,
+                                                   '' REASON_CODE
+      FROM
+        (SELECT *
+         FROM
+           (SELECT A.SETTLEMENT_DATE,
+                   A.PARTICIPANT_ID,
+                   A.UIN,
+                   A.ISIN,
+                   A.ACCOUNT_NUMBER,
+                   A.SELL_QTY,
+                   A.SELL_PRICE,
+                   SELL_VALUE,
+                   A.SELL_EXPENSE,
+                   A.MARKET_TRAN_ID,
+                   1 AS ACC_OUT_ID
+            FROM CGTLIVE.CGT_ACCOUNT_SALE A
+            WHERE TO_CHAR (A.SETTLEMENT_DATE,
+                           'MON') = 'JAN'
+              AND TO_CHAR (A.SETTLEMENT_DATE,
+                           'YYYY') = '2019' )/*added start*/ B /*added ends*/
+         WHERE NOT EXISTS
+             (SELECT COALESCE (ALL_TYPE_OUT_ID,
+                               0), COALESCE (ALL_TYPE_OUT_DET_ID,
+                                             0)
+              FROM
+                (SELECT A.TRANSACTION_DATE,
+                        A.PARTICIPANT_ID,
+                        A.UIN,
+                        A.ISIN,
+                        A.ACCOUNT_NUMBER,
+                        A.INV_OUTGOING_QTY,
+                        A.ALL_TYPE_OUT_ID,
+                        A.ALL_TYPE_OUT_DET_ID
+                 FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION A
+                 WHERE TO_CHAR (A.TRANSACTION_DATE,
+                                'MON') = 'JAN'
+                   AND TO_CHAR (A.TRANSACTION_DATE,
+                                'YYYY') = '2019' )/*added start*/ A
+              WHERE A.ALL_TYPE_OUT_ID = B.MARKET_TRAN_ID /*added ends*/ ))X
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON X.UIN = FNF.UIN
+      AND X.SETTLEMENT_DATE = FNF.SETTLEMENT_DATE,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (X.SETTLEMENT_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (X.SETTLEMENT_DATE,
+                     'YYYY') = '2019'
+        AND X.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+      UNION ALL SELECT X.TRANSACTION_DATE,
+                       X.UIN,
+                       X.PARTICIPANT_ID,
+                       X.ISIN,
+                       X.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       X.OUTGOING_QTY CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       OUTGOING_VALUE TAX_OUTGOING_VALUE,
+                       0 IN_TAX_OUTGOING_VALUE,
+                       0 SELL_EXPENSE,
+                       NULL INV_PARTICIPANT_ID,
+                            0 INV_ACCOUNT_NUMBER,
+                            0 INV_OUTGOING_QTY,
+                            0 INV_PRICE,
+                            NULL INVENTORY_DATE,
+                                 0 INV_AVG_PRICE,
+                                 0 PROFIT_LOSS_SALE,
+                                 0 PROFIT_LOSS_QTY_SALE,
+                                 0 DURATION_SALE,
+                                 0 CGT_SALE,
+                                 0 TAX_PERCENT_SALE,
+                                 0 PROFIT_LOSS_TAXABLE,
+                                 0 PROFIT_LOSS_QTY_TAXABLE,
+                                 0 DURATION_TAXABLE,
+                                 0 CGT_TAXABLE,
+                                 0 TAX_PERCENT_TAXABLE,
+                                 'Non-Market Based' TRANS_TYPE,
+                                                    TRN_CODE,
+                                                    REASON_CODE
+      FROM
+        (SELECT *
+         FROM
+           (SELECT TRANSACTION_DATE,
+                   PARTICIPANT_ID,
+                   UIN,
+                   ISIN,
+                   ACCOUNT_NUMBER,
+                   OUTGOING_QTY,
+                   OUTGOING_PRICE,
+                   OUTGOING_VALUE,
+                   NCC_TRN_ID,
+                   A.ACC_OUT_ID,
+                   A.TRN_CODE,
+                   A.REASON_CODE
+            FROM CGTLIVE.CGT_ACCOUNT_OUTGOING A
+            WHERE A.TAX_APPLICABLE = 'Y'
+              AND TO_CHAR (A.TRANSACTION_DATE,
+                           'MON') = 'JAN'
+              AND TO_CHAR (A.TRANSACTION_DATE,
+                           'YYYY') = '2019'
+            UNION ALL SELECT TRANSACTION_DATE,
+                             PARTICIPANT_ID,
+                             UIN,
+                             ISIN,
+                             ACCOUNT_NUMBER,
+                             OUTGOING_QTY,
+                             OUTGOING_PRICE,
+                             OUTGOING_VALUE,
+                             NCC_TRN_ID,
+                             ACC_OUT_ID,
+                             TRN_CODE,
+                             REASON_CODE
+            FROM
+              (SELECT C.TRANSACTION_DATE,
+                      C.PARTICIPANT_ID,
+                      C.UIN,
+                      C.ISIN,
+                      C.ACCOUNT_NUMBER,
+                      C.OUTGOING_QTY,
+                      C.OUTGOING_PRICE,
+                      C.OUTGOING_VALUE,
+                      C.NCC_TRN_ID,
+                      C.ACC_OUT_ID,
+                      CASE
+                          WHEN C.TRN_CODE = 'E060'
+                               AND C.OPR_CODE = 'DLST' THEN CASE
+                                                                WHEN (S.SEC_TYPE_ID = '3') THEN 'Y'
+                                                                ELSE 'N'
+                                                            END
+                          ELSE C.TAX_APPLICABLE
+                      END TAX_APPLICABLE,
+                      C.TRN_CODE,
+                      C.REASON_CODE
+               FROM CGTLIVE.CGT_CORPORATEACTION_OUTGOING C,
+                    NCSSLIVE.SECURITY S
+               WHERE C.ISIN = S.ISIN
+                 AND TO_CHAR (C.TRANSACTION_DATE,
+                              'MON') = 'JAN'
+                 AND TO_CHAR (C.TRANSACTION_DATE,
+                              'YYYY') = '2019' )foo
+            WHERE TAX_APPLICABLE = 'Y')foo
+         WHERE (NCC_TRN_ID,
+                ACC_OUT_ID) NOT IN
+             (SELECT COALESCE (ALL_TYPE_OUT_ID,
+                               0), COALESCE (ALL_TYPE_OUT_DET_ID,
+                                             0)
+              FROM
+                (SELECT A.TRANSACTION_DATE,
+                        A.PARTICIPANT_ID,
+                        A.UIN,
+                        A.ISIN,
+                        A.ACCOUNT_NUMBER,
+                        A.INV_OUTGOING_QTY,
+                        A.ALL_TYPE_OUT_ID,
+                        A.ALL_TYPE_OUT_DET_ID
+                 FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION A
+                 WHERE TO_CHAR (A.TRANSACTION_DATE,
+                                'MON') = 'JAN'
+                   AND TO_CHAR (A.TRANSACTION_DATE,
+                                'YYYY') = '2019' )foo))X
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON X.UIN = FNF.UIN
+      AND X.TRANSACTION_DATE = FNF.SETTLEMENT_DATE,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (X.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (X.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND X.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+      UNION ALL SELECT X.TRANSACTION_DATE,
+                       X.UIN,
+                       X.PARTICIPANT_ID,
+                       X.ISIN,
+                       X.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       0 CGT_TAXIABLE_QTY,
+                       X.OUTGOING_QTY CGT_NONTAX_QTY,
+                       0 TAX_OUTGOING_VALUE,
+                       OUTGOING_VALUE IN_TAX_OUTGOING_VALUE,
+                       0 SELL_EXPENSE,
+                       NULL INV_PARTICIPANT_ID,
+                            0 INV_ACCOUNT_NUMBER,
+                            0 INV_OUTGOING_QTY,
+                            0 INV_PRICE,
+                            NULL INVENTORY_DATE,
+                                 0 INV_AVG_PRICE,
+                                 0 PROFIT_LOSS_SALE,
+                                 0 PROFIT_LOSS_QTY_SALE,
+                                 0 DURATION_SALE,
+                                 0 CGT_SALE,
+                                 0 TAX_PERCENT_SALE,
+                                 0 PROFIT_LOSS_TAXABLE,
+                                 0 PROFIT_LOSS_QTY_TAXABLE,
+                                 0 DURATION_TAXABLE,
+                                 0 CGT_TAXABLE,
+                                 0 TAX_PERCENT_TAXABLE,
+                                 'Non-Market Based' TRANS_TYPE,
+                                                    TRN_CODE,
+                                                    REASON_CODE
+      FROM
+        (SELECT *
+         FROM
+           (SELECT TRANSACTION_DATE,
+                   PARTICIPANT_ID,
+                   UIN,
+                   ISIN,
+                   ACCOUNT_NUMBER,
+                   OUTGOING_QTY,
+                   OUTGOING_PRICE,
+                   OUTGOING_VALUE,
+                   NCC_TRN_ID,
+                   A.ACC_OUT_ID,
+                   A.TRN_CODE,
+                   A.REASON_CODE
+            FROM CGTLIVE.CGT_ACCOUNT_OUTGOING A
+            WHERE A.TAX_APPLICABLE = 'N'
+              AND TO_CHAR (A.TRANSACTION_DATE,
+                           'MON') = 'JAN'
+              AND TO_CHAR (A.TRANSACTION_DATE,
+                           'YYYY') = '2019'
+            UNION ALL SELECT TRANSACTION_DATE,
+                             PARTICIPANT_ID,
+                             UIN,
+                             ISIN,
+                             ACCOUNT_NUMBER,
+                             OUTGOING_QTY,
+                             OUTGOING_PRICE,
+                             OUTGOING_VALUE,
+                             NCC_TRN_ID,
+                             ACC_OUT_ID,
+                             TRN_CODE,
+                             REASON_CODE
+            FROM
+              (SELECT C.TRANSACTION_DATE,
+                      C.PARTICIPANT_ID,
+                      C.UIN,
+                      C.ISIN,
+                      C.ACCOUNT_NUMBER,
+                      C.OUTGOING_QTY,
+                      C.OUTGOING_PRICE,
+                      C.OUTGOING_VALUE,
+                      C.NCC_TRN_ID,
+                      C.ACC_OUT_ID,
+                      CASE
+                          WHEN C.TRN_CODE = 'E060'
+                               AND C.OPR_CODE = 'DLST' THEN CASE
+                                                                WHEN (S.SEC_TYPE_ID = '3') THEN 'Y'
+                                                                ELSE 'N'
+                                                            END
+                          ELSE C.TAX_APPLICABLE
+                      END TAX_APPLICABLE,
+                      C.TRN_CODE,
+                      C.REASON_CODE
+               FROM CGTLIVE.CGT_CORPORATEACTION_OUTGOING C,
+                    NCSSLIVE.SECURITY S
+               WHERE C.ISIN = S.ISIN
+                 AND TO_CHAR (C.TRANSACTION_DATE,
+                              'MON') = 'JAN'
+                 AND TO_CHAR (C.TRANSACTION_DATE,
+                              'YYYY') = '2019' )foo
+            WHERE TAX_APPLICABLE = 'N')foo
+         WHERE (NCC_TRN_ID,
+                ACC_OUT_ID) NOT IN
+             (SELECT COALESCE (ALL_TYPE_OUT_ID,
+                               0), COALESCE (ALL_TYPE_OUT_DET_ID,
+                                             0)
+              FROM
+                (SELECT A.TRANSACTION_DATE,
+                        A.PARTICIPANT_ID,
+                        A.UIN,
+                        A.ISIN,
+                        A.ACCOUNT_NUMBER,
+                        A.INV_OUTGOING_QTY,
+                        A.ALL_TYPE_OUT_ID,
+                        A.ALL_TYPE_OUT_DET_ID
+                 FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION A
+                 WHERE TO_CHAR (A.TRANSACTION_DATE,
+                                'MON') = 'JAN'
+                   AND TO_CHAR (A.TRANSACTION_DATE,
+                                'YYYY') = '2019' )foo))X
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON X.TRANSACTION_DATE = FNF.SETTLEMENT_DATE
+      AND X.UIN = FNF.UIN,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (X.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (X.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND X.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+      UNION ALL SELECT X.TRANSACTION_DATE,
+                       X.UIN,
+                       X.PARTICIPANT_ID,
+                       X.ISIN,
+                       X.ACCOUNT_NUMBER,
+                       (X.MARKET_QTY - X.NON_MARKET_QTY) SELL_QTY,
+                       X.SELL_PRICE SELL_RATE,
+                       (X.MARKET_QTY - X.NON_MARKET_QTY) * X.SELL_PRICE SELL_VALUE,
+                       0 CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       0 TAX_OUTGOING_VALUE,
+                       0 IN_TAX_OUTGOING_VALUE, /*added start*/ (X.SELL_EXPENSE/X.MARKET_QTY)* (X.MARKET_QTY - X.NON_MARKET_QTY) SELL_EXPENSE, /*  X.SELL_EXPENSE, */ /*added ends*/ NULL INV_PARTICIPANT_ID,
+                                                                                                                                                                                          0 INV_ACCOUNT_NUMBER,
+                                                                                                                                                                                          0 INV_OUTGOING_QTY,
+                                                                                                                                                                                          0 INV_PRICE,
+                                                                                                                                                                                          NULL INVENTORY_DATE,
+                                                                                                                                                                                               0 INV_AVG_PRICE,
+                                                                                                                                                                                               0 PROFIT_LOSS_SALE,
+                                                                                                                                                                                               0 PROFIT_LOSS_QTY_SALE,
+                                                                                                                                                                                               0 DURATION_SALE,
+                                                                                                                                                                                               0 CGT_SALE,
+                                                                                                                                                                                               0 TAX_PERCENT_SALE,
+                                                                                                                                                                                               0 PROFIT_LOSS_TAXABLE,
+                                                                                                                                                                                               0 PROFIT_LOSS_QTY_TAXABLE,
+                                                                                                                                                                                               0 DURATION_TAXABLE,
+                                                                                                                                                                                               0 CGT_TAXABLE,
+                                                                                                                                                                                               0 TAX_PERCENT_TAXABLE,
+                                                                                                                                                                                               'Market Based' TRANS_TYPE,
+                                                                                                                                                                                                              '' TRN_CODE,
+                                                                                                                                                                                                                 '' REASON_CODE
+      FROM
+        (SELECT S.settlement_date TRANSACTION_DATE,
+                S.participant_id,
+                S.uin,
+                S.isin,
+                S.account_number,
+                SUM (S.sell_qty) MARKET_QTY, /*added start*/ SUM(SELL_VALUE)/SUM(SELL_QTY) SELL_PRICE, /* AVG (SELL_PRICE) SELL_PRICE,*/ /*added ends*/ SUM (FR.inv_outgoing_qty) NON_MARKET_QTY, /*added start*/ SUM (S.SELL_EXPENSE) SELL_EXPENSE /*  AVG (S.SELL_EXPENSE) SELL_EXPENSE */ /*added ends*/
+         FROM cgtlive.cgt_account_sale S,
+
+           (SELECT SUM (GL.INV_OUTGOING_QTY) INV_OUTGOING_QTY,
+                       GL.PROFIT_LOSS_TAG PROFIT_LOSS_TAG,
+                       GL.TRANSACTION_DATE TRANSACTION_DATE,
+                       GL.UIN UIN,
+                       GL.ACCOUNT_NUMBER ACCOUNT_NUMBER,
+                       GL.PARTICIPANT_ID,
+                       GL.ISIN ISIN,
+                       all_type_out_id,
+                       ALL_TYPE_OUT_DET_ID,
+                       outgoIng_type
+            FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL
+            WHERE TO_CHAR (GL.TRANSACTION_DATE,
+                           'MON') = 'JAN'
+              AND TO_CHAR (GL.TRANSACTION_DATE,
+                           'YYYY') = '2019'
+            GROUP BY PROFIT_LOSS_TAG,
+                     TRANSACTION_DATE,
+                     UIN,
+                     ACCOUNT_NUMBER,
+                     PARTICIPANT_ID,
+                     ISIN,
+                     all_type_out_id,
+                     ALL_TYPE_OUT_DET_ID,
+                     outgoIng_type) FR
+         WHERE S.market_tran_id = FR.all_type_out_id
+           AND FR.outgoing_type = 'M'
+           AND FR.PROFIT_LOSS_TAG = 'Y'
+           AND S.SETTLEMENT_DATE = FR.TRANSACTION_DATE
+         GROUP BY S.settlement_date,
+                  S.participant_id,
+                  S.uin,
+                  S.isin,
+                  S.account_number,
+                  market_tran_id
+         HAVING SUM (S.sell_qty) != SUM (FR.inv_outgoing_qty)) X
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON X.TRANSACTION_DATE = FNF.SETTLEMENT_DATE
+      AND X.UIN = FNF.UIN,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (X.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (X.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND X.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+      UNION ALL SELECT X.TRANSACTION_DATE,
+                       X.UIN,
+                       X.PARTICIPANT_ID,
+                       X.ISIN,
+                       X.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       (X.TAXIABLE_QTY - X.TAXABLE_OUTGOING_FIFO) CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       ((X.TAXIABLE_QTY - X.TAXABLE_OUTGOING_FIFO) * (OUTGOING_PRICE)) TAX_OUTGOING_VALUE,
+                       0 IN_TAX_OUTGOING_VALUE,
+                       0 SELL_EXPENSE,
+                       NULL INV_PARTICIPANT_ID,
+                            0 INV_ACCOUNT_NUMBER,
+                            0 INV_OUTGOING_QTY,
+                            0 INV_PRICE,
+                            NULL INVENTORY_DATE,
+                                 0 INV_AVG_PRICE,
+                                 0 PROFIT_LOSS_SALE,
+                                 0 PROFIT_LOSS_QTY_SALE,
+                                 0 DURATION_SALE,
+                                 0 CGT_SALE,
+                                 0 TAX_PERCENT_SALE,
+                                 0 PROFIT_LOSS_TAXABLE,
+                                 0 PROFIT_LOSS_QTY_TAXABLE,
+                                 0 DURATION_TAXABLE,
+                                 0 CGT_TAXABLE,
+                                 0 TAX_PERCENT_TAXABLE,
+                                 'Non-Market Based' TRANS_TYPE,
+                                                    TRN_CODE,
+                                                    TAX_REASON REASON_CODE
+      FROM
+        (SELECT OT.settlement_date TRANSACTION_DATE,
+                OT.participant_id,
+                OT.uin,
+                OT.isin,
+                OT.account_number,
+                SUM (OT.cgt_taxiable_qty) TAXIABLE_QTY,
+                    SUM (FR.inv_outgoing_qty) TAXABLE_OUTGOING_FIFO,
+                        AVG (OT.OUTGOING_PRICE) OUTGOING_PRICE,
+                            OT.TRN_CODE,
+                            OT.TAX_REASON
+         FROM cgtlive.cgt_outgoing_taxiable_vw_wid_T OT,
+
+           (SELECT SUM (GL.INV_OUTGOING_QTY) INV_OUTGOING_QTY,
+                       GL.PROFIT_LOSS_TAG PROFIT_LOSS_TAG,
+                       GL.TRANSACTION_DATE TRANSACTION_DATE,
+                       GL.UIN UIN,
+                       GL.ACCOUNT_NUMBER ACCOUNT_NUMBER,
+                       GL.PARTICIPANT_ID,
+                       GL.ISIN ISIN,
+                       all_type_out_id,
+                       ALL_TYPE_OUT_DET_ID,
+                       outgoIng_type
+            FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL
+            WHERE TO_CHAR (GL.TRANSACTION_DATE,
+                           'MON') = 'JAN'
+              AND TO_CHAR (GL.TRANSACTION_DATE,
+                           'YYYY') = '2019'
+            GROUP BY PROFIT_LOSS_TAG,
+                     TRANSACTION_DATE,
+                     UIN,
+                     ACCOUNT_NUMBER,
+                     PARTICIPANT_ID,
+                     ISIN,
+                     all_type_out_id,
+                     ALL_TYPE_OUT_DET_ID,
+                     outgoIng_type) FR
+         WHERE OT.ncc_trn_id = FR.all_type_out_id
+           AND FR.outgoIng_type IN ('N',
+                                    'C')
+           AND FR.PROFIT_LOSS_TAG = 'Y'
+           AND OT.SETTLEMENT_DATE = FR.TRANSACTION_DATE
+         GROUP BY OT.settlement_date,
+                  OT.participant_id,
+                  OT.uin,
+                  OT.isin,
+                  OT.account_number,
+                  ncc_trn_id,
+                  OT.TRN_CODE,
+                  OT.TAX_REASON
+         HAVING SUM (OT.cgt_taxiable_qty) != SUM (FR.inv_outgoing_qty)) X
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON X.TRANSACTION_DATE = FNF.SETTLEMENT_DATE
+      AND X.UIN = FNF.UIN ,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (X.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (X.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND X.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+      UNION ALL SELECT X.TRANSACTION_DATE,
+                       X.UIN,
+                       X.PARTICIPANT_ID,
+                       X.ISIN,
+                       X.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       0 CGT_TAXIABLE_QTY,
+                       (NONTAX_QTY - NON_TAXABLE_OUTGOING_FIFO) CGT_NONTAX_QTY,
+                       0 TAX_OUTGOING_VALUE, (NONTAX_QTY - NON_TAXABLE_OUTGOING_FIFO /*added Start*/ )/*added ends*/ * (OUTGOING_PRICE)/*added Start*/ /* ) */ /*added ends*/ IN_TAX_OUTGOING_VALUE,
+                                                                                                                                                                              0 SELL_EXPENSE,
+                                                                                                                                                                              NULL INV_PARTICIPANT_ID,
+                                                                                                                                                                                   0 INV_ACCOUNT_NUMBER,
+                                                                                                                                                                                   0 INV_OUTGOING_QTY,
+                                                                                                                                                                                   0 INV_PRICE,
+                                                                                                                                                                                   NULL INVENTORY_DATE,
+                                                                                                                                                                                        0 INV_AVG_PRICE,
+                                                                                                                                                                                        0 PROFIT_LOSS_SALE,
+                                                                                                                                                                                        0 PROFIT_LOSS_QTY_SALE,
+                                                                                                                                                                                        0 DURATION_SALE,
+                                                                                                                                                                                        0 CGT_SALE,
+                                                                                                                                                                                        0 TAX_PERCENT_SALE,
+                                                                                                                                                                                        0 PROFIT_LOSS_TAXABLE,
+                                                                                                                                                                                        0 PROFIT_LOSS_QTY_TAXABLE,
+                                                                                                                                                                                        0 DURATION_TAXABLE,
+                                                                                                                                                                                        0 CGT_TAXABLE,
+                                                                                                                                                                                        0 TAX_PERCENT_TAXABLE,
+                                                                                                                                                                                        'Non-Market Based' TRANS_TYPE,
+                                                                                                                                                                                                           TRN_CODE,
+                                                                                                                                                                                                           IN_REASON REASON_CODE
+      FROM
+        (SELECT OT.settlement_date TRANSACTION_DATE,
+                OT.participant_id,
+                OT.uin,
+                OT.isin,
+                OT.account_number,
+                SUM (OT.cgt_nontax_qty) NONTAX_QTY,
+                    SUM (FR.inv_outgoing_qty) NON_TAXABLE_OUTGOING_FIFO,
+                        AVG (OT.OUTGOING_PRICE) OUTGOING_PRICE,
+                            OT.TRN_CODE,
+                            OT.IN_REASON
+         FROM cgtlive.CGT_OUTGOING_NONTAX_VW_WID_T OT,
+
+           (SELECT SUM (GL.INV_OUTGOING_QTY) INV_OUTGOING_QTY,
+                       GL.PROFIT_LOSS_TAG PROFIT_LOSS_TAG,
+                       GL.TRANSACTION_DATE TRANSACTION_DATE,
+                       GL.UIN UIN,
+                       GL.ACCOUNT_NUMBER ACCOUNT_NUMBER,
+                       GL.PARTICIPANT_ID,
+                       GL.ISIN ISIN,
+                       all_type_out_id,
+                       ALL_TYPE_OUT_DET_ID,
+                       outgoIng_type
+            FROM CGTLIVE.CGT_GLOBAL_FIFO_INV_RELATION GL
+            WHERE TO_CHAR (GL.TRANSACTION_DATE,
+                           'MON') = 'JAN'
+              AND TO_CHAR (GL.TRANSACTION_DATE,
+                           'YYYY') = '2019'
+            GROUP BY PROFIT_LOSS_TAG,
+                     TRANSACTION_DATE,
+                     UIN,
+                     ACCOUNT_NUMBER,
+                     PARTICIPANT_ID,
+                     ISIN,
+                     all_type_out_id,
+                     ALL_TYPE_OUT_DET_ID,
+                     outgoIng_type) FR
+         WHERE OT.ncc_trn_id = FR.all_type_out_id
+           AND OT.ACC_OUT_ID = FR.ALL_TYPE_OUT_DET_ID
+           AND FR.outgoIng_type IN ('N',
+                                    'C')
+           AND FR.PROFIT_LOSS_TAG = 'N'
+           AND OT.SETTLEMENT_DATE = FR.TRANSACTION_DATE
+         GROUP BY OT.settlement_date,
+                  OT.participant_id,
+                  OT.uin,
+                  OT.isin,
+                  OT.account_number,
+                  ncc_trn_id,
+                  OT.TRN_CODE,
+                  OT.IN_REASON
+         HAVING SUM (OT.cgt_nontax_qty) != SUM (FR.inv_outgoing_qty)) X
+      LEFT OUTER JOIN CGTLIVE.CGT_FILER_NON_FILER_STATUS FNF ON X.TRANSACTION_DATE = FNF.SETTLEMENT_DATE
+      AND X.UIN = FNF.UIN,
+          CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (X.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (X.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND X.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+      UNION ALL SELECT FNF.TRANSACTION_DATE,
+                       FNF.UIN,
+                       FNF.PARTICIPANT_ID,
+                       FNF.ISIN,
+                       FNF.ACCOUNT_NUMBER,
+                       0 SELL_QTY,
+                       0 SELL_RATE,
+                       0 SELL_VALUE,
+                       FNF.PROFIT_LOSS_QTY CGT_TAXIABLE_QTY,
+                       0 CGT_NONTAX_QTY,
+                       0 TAX_OUTGOING_VALUE,
+                       0 IN_TAX_OUTGOING_VALUE,
+                       0 SELL_EXPENSE,
+                       NULL INV_PARTICIPANT_ID,
+                            NULL INV_ACCOUNT_NUMBER,
+                                 0 INV_OUTGOING_QTY,
+                                 0 INV_PRICE,
+                                 NULL INVENTORY_DATE,
+                                      0 INV_AVG_PRICE,
+                                      0 PROFIT_LOSS_SALE,
+                                      0 PROFIT_LOSS_QTY_SALE,
+                                      0 DURATION_SALE,
+                                      0 CGT_SALE,
+                                      0 TAX_PERCENT_SALE,
+                                      FNF.PROFIT_LOSS PROFIT_LOSS_TAXABLE,
+                                      0 PROFIT_LOSS_QTY_TAXABLE,
+                                      FNF.DURATION DURATION_TAXABLE,
+                                      FNF.CAPITAL_GAIN_TAX CGT_TAXABLE,
+                                      FNF.TAX_PERCENT TAX_PERCENT_TAXABLE,
+                                      'Close-out/Square-Up' TRANS_TYPE,
+                                                            '' TRN_CODE,
+                                                               '' REASON_CODE
+      FROM CGTLIVE.CGT_NON_INVENTORY_PL_FNF_VIEW FNF,
+           CGTLIVE.CGT_ELIGIBLE_CM ELG
+      WHERE TO_CHAR (FNF.TRANSACTION_DATE,
+                     'MON') = 'JAN'
+        AND TO_CHAR (FNF.TRANSACTION_DATE,
+                     'YYYY') = '2019'
+        AND FNF.PARTICIPANT_ID = ELG.PARTICIPANT_ID ) TEMP
+   GROUP BY TEMP.SETTLEMENT_DATE,
+            TEMP.UIN,
+            TEMP.PARTICIPANT_ID,
+            TEMP.ISIN,
+            TEMP.ACCOUNT_NUMBER,
+            INV_PARTICIPANT_ID,
+            INV_ACCOUNT_NUMBER,
+            INVENTORY_DATE,
+            TEMP.TRANS_TYPE,
+            TRN_CODE,
+            REASON_CODE) MVIEW
+INNER JOIN NCSSLIVE.CGT_ELIGIBLE_CM ELG ON MVIEW.PARTICIPANT_ID = ELG.PARTICIPANT_ID
+INNER JOIN NCSSLIVE.SECURITY S ON MVIEW.ISIN = S.ISIN
+INNER JOIN
+  (SELECT UIN,
+          UIN_NAME
+   FROM CGTLIVE.cgt_eligible_uin_ALL
+   WHERE UIN NOT IN
+       (SELECT IPO_UIN
+        FROM CGTLIVE.CGT_IPO_UIN))U ON MVIEW.UIN = U.UIN
+ORDER BY PARTICIPANT_ID,
+         UIN,
+         SETTLEMENT_DATE,
+         SYMBOL,
+         TRANS_TYPE,
+         TRN_CODE,
+         REASON_CODE
